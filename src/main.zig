@@ -11,5 +11,11 @@ pub fn main() !void {
 
     defer adpd4101_sensor.deinit();
 
-    _ = try adpd4101_sensor.read_raw();
+    var read_buffer: [1024]u8 = undefined;
+    while (true) {
+        const bytes_read = try adpd4101_sensor.read_raw(&read_buffer);
+        if (bytes_read > 0) {
+            std.debug.print("Read {} bytes from ADPD4101 sensor\n", .{bytes_read});
+        }
+    }
 }
