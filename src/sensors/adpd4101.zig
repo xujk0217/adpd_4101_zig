@@ -3,15 +3,13 @@ const std = @import("std");
 
 pub const ADPD4101 = struct {
     fd: std.posix.fd_t,
-    timeslots: []const TimeSlot,
-    oscillator: Oscillator,
-    timeslot_freq_hz: u32,
 
     pub fn init(
         i2c_bus_path: []const u8,
         oscillator: Oscillator,
         timeslot_freq_hz: u32,
         timeslots: []const TimeSlot,
+        use_ext_clock: bool,
     ) !ADPD4101 {
         const file = try std.fs.cwd().openFile(i2c_bus_path, .{ .mode = .read_write });
 
@@ -19,7 +17,7 @@ pub const ADPD4101 = struct {
 
         try reset_all(fd);
 
-        try set_oscillator(fd, oscillator, null);
+        try set_oscillator(fd, oscillator, use_ext_clock);
         try set_input(fd);
         try set_led_power(
             fd,
@@ -130,19 +128,21 @@ fn set_input(fd: std.posix.fd_t) !void {
 }
 
 // compile time function to get LED ID from name
-fn get_led_id(comptime names: []const []const u8) [names.len]u16 {
+pub fn get_led_id(comptime name: []const u8) u16 {
     comptime {
-        var result: [names.len]u16 = undefined;
-        for (names, 0..) |name, i| {
-            if (name.len != 2) {
-                @compileError("LED name must be 2 characters long");
-            }
-            const number = name[0] - '0' - 1;
-            const letter = name[1];
-
-            result[i] = (number * 2 + (letter - 'A'));
+        if (name.len != 2) {
+            @compileError("LED name must be 2 characters long");
         }
-        return result;
+        // to lower case
+        if (name[1] < 'A' or name[1] > 'B') {
+            @compileError("LED name second character must be A, B");
+        }
+        if (name[0] < '1' or name[0] > '4') {
+            @compileError("LED name first character must be between 1 and 4");
+        }
+        const number = name[0] - '0' - 1;
+        const letter = name[1];
+        return (number * 2 + (letter - 'A'));
     }
 }
 // Device I2C Address
@@ -220,7 +220,7 @@ const LIT_DATA_FORMAT_J_REG: u16 = 0x0231;
 const LIT_DATA_FORMAT_K_REG: u16 = 0x0251;
 const LIT_DATA_FORMAT_L_REG: u16 = 0x0271;
 
-const Oscillator = enum { INTERNAL_1MHZ, INTERNAL_32KHZ };
+pub const Oscillator = enum { INTERNAL_1MHZ, INTERNAL_32KHZ };
 
 // struct definitions
 pub const TimeSlot = struct {

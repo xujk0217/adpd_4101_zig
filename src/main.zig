@@ -2,6 +2,7 @@ const std = @import("std");
 const linux = @import("std").os.linux;
 const sensor = @import("sensors/sensor.zig");
 const i2c = @import("utils/i2c.zig");
+const adpd_config = @import("sensors/adpd4101_config.zig");
 
 var should_exit = std.atomic.Value(bool).init(false);
 
@@ -18,7 +19,13 @@ pub fn main() !void {
     };
     std.posix.sigaction(linux.SIG.INT, &act, null);
 
-    var adpd4101_sensor = sensor.ADPD4101Sensor.init("/dev/i2c-3") catch |err| {
+    var adpd4101_sensor = sensor.ADPD4101Sensor.init(
+        adpd_config.i2c_device_path,
+        adpd_config.oscillator,
+        adpd_config.timeslot_freq_hz,
+        &adpd_config.time_slots,
+        adpd_config.use_ext_clock,
+    ) catch |err| {
         std.debug.print("Failed to initialize ADPD4101 sensor: {}\n", .{err});
         return err;
     };
