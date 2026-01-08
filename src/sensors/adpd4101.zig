@@ -5,11 +5,11 @@ pub const ADPD4101 = struct {
     fd: std.posix.fd_t,
 
     pub fn init(
-        i2c_bus_path: []const u8,
-        oscillator: Oscillator,
-        timeslot_freq_hz: u32,
-        timeslots: []const TimeSlot,
-        use_ext_clock: bool,
+        comptime i2c_bus_path: []const u8,
+        comptime oscillator: Oscillator,
+        comptime timeslot_freq_hz: u32,
+        comptime timeslots: []const TimeSlot,
+        comptime use_ext_clock: bool,
     ) !ADPD4101 {
         const file = try std.fs.cwd().openFile(i2c_bus_path, .{ .mode = .read_write });
 
@@ -18,11 +18,13 @@ pub const ADPD4101 = struct {
         try reset_all(fd);
 
         try set_oscillator(fd, oscillator, use_ext_clock);
-        try set_input(fd);
         try set_led_power(
             fd,
             timeslots,
         );
+        inline for (timeslots) |ts| {
+            try config_time_slot(fd, ts);
+        }
         try set_time_slot_freq(fd, oscillator, timeslot_freq_hz);
         try set_opmode(fd, @intCast(timeslots.len), true);
         return ADPD4101{
@@ -88,6 +90,42 @@ fn set_oscillator(
     try i2c.i2cWriteReg(fd, DEV_ADDR, SYS_CTL_REG, @as([2]u8, data));
 }
 
+fn config_time_slot(fd: std.posix.fd_t, slot: TimeSlot) !void {
+    const target_reg = INPUT_A_REG + (slot.id[0] - 'A');
+
+    var value: u16 = 0;
+
+    // channel1
+    if (slot.input_pds[0]) |pd| {
+        const offset: u4 = if (pd.id % 2 == 0)
+            @as(u4, 2)
+        else
+            @as(u4, 0);
+
+        const shift_amout: u4 = @intCast(((pd.id - 1) / 2) * 4 + offset);
+
+        value |= @as(u16, 0x1) << shift_amout;
+    }
+
+    // channel2
+    if (slot.input_pds[1]) |pd| {
+        const offset: u4 = if (pd.id % 2 == 0)
+            @as(u4, 2)
+        else
+            @as(u4, 1);
+        const shift_amout: u4 = @intCast(((pd.id - 1) / 2) * 4 + offset);
+        value |= @as(u16, 0x1) << shift_amout;
+    }
+
+    std.debug.print("value binary: {b}\n", .{value});
+
+    var data: [2]u8 = undefined;
+    std.mem.writeInt(u16, &data, value, .big);
+    std.debug.print("Setting INPUT_{s} to {x}\n", .{ slot
+        .id, value });
+    try i2c.i2cWriteReg(fd, DEV_ADDR, target_reg, @as([2]u8, data));
+}
+
 fn set_time_slot_freq(fd: std.posix.fd_t, oscillator: Oscillator, target_hz: u32) !void {
     const oscillator_freq: u32 = switch (oscillator) {
         .INTERNAL_1MHZ => 1_000_000,
@@ -117,14 +155,6 @@ fn set_led_power(fd: std.posix.fd_t, time_slots: []const TimeSlot) !void {
     std.mem.writeInt(u16, &data, value, .big);
     std.debug.print("Setting LED power to {x}\n", .{value});
     try i2c.i2cWriteReg(fd, DEV_ADDR, LED_POW12_A_REG, @as([2]u8, data));
-}
-
-// TODO
-fn set_input(fd: std.posix.fd_t) !void {
-    const value: u16 = 0b0000_0001;
-    var data: [2]u8 = undefined;
-    std.mem.writeInt(u16, &data, value, .big);
-    try i2c.i2cWriteReg(fd, DEV_ADDR, INPUT_A_REG, @as([2]u8, data));
 }
 
 // compile time function to get LED ID from name
@@ -228,6 +258,7 @@ pub const TimeSlot = struct {
     leds: []const Led,
     data_format: DataFormat,
     led_pulse: LedPulse,
+    input_pds: [2]?PD,
 };
 
 pub const DataFormat = struct {
@@ -247,4 +278,8 @@ pub const Led = struct {
 pub const LedPulse = struct {
     pulse_width_us: u16 = 0x2,
     pulse_offset_us: u16 = 0x10,
+};
+
+pub const PD = struct {
+    id: u16,
 };
