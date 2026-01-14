@@ -12,6 +12,8 @@ pub const ADPD4101 = struct {
         comptime timeslot_freq_hz: u32,
         comptime timeslots: []const TimeSlot,
         comptime use_ext_clock: bool,
+        comptime fifo_threshold: u16,
+        comptime gpio_id: u32,
     ) !ADPD4101 {
         const file = try std.fs.cwd().openFile(i2c_bus_path, .{ .mode = .read_write });
 
@@ -23,7 +25,7 @@ pub const ADPD4101 = struct {
         inline for (timeslots) |ts| {
             try config_time_slot(fd, dev_addr, ts);
         }
-        try set_interrupt(fd, dev_addr, 0);
+        try set_interrupt(fd, dev_addr, gpio_id, fifo_threshold);
         try set_time_slot_freq(fd, dev_addr, oscillator, timeslot_freq_hz);
         try set_opmode(fd, dev_addr, @intCast(timeslots.len), true);
         return ADPD4101{
@@ -42,9 +44,9 @@ pub const ADPD4101 = struct {
     pub fn read_raw(self: *const ADPD4101, out_buf: []u8) !usize {
         // get fifo status
         const status = try i2c.I2cReadReg(self.fd, self.dev_addr, FIFO_STATUS_REG);
-        std.debug.print("FIFO_STATUS_REG: {any}\n", .{status});
+        // std.debug.print("FIFO_STATUS_REG: {any}\n", .{status});
         const fifo_size: u16 = std.mem.readInt(u16, &status, .big) & 0b0000_0111_1111_1111;
-        std.debug.print("FIFO size: {d}\n", .{fifo_size});
+        // std.debug.print("FIFO size: {d}\n", .{fifo_size});
         if (fifo_size == 0) {
             return 0;
         }
@@ -67,10 +69,15 @@ fn set_opmode(fd: std.posix.fd_t, dev_addr: u8, slot_count: u8, is_enable: bool)
     try i2c.i2cWriteReg(fd, dev_addr, OPMODE_REG, @as([2]u8, data));
 }
 
-fn set_interrupt(fd: std.posix.fd_t, dev_addr: u8, gpio_id: u32) !void {
+fn set_interrupt(fd: std.posix.fd_t, dev_addr: u8, gpio_id: u32, comptime fifo_threshold: u16) !void {
+    comptime {
+        if (fifo_threshold > 0x01FF) {
+            @compileError("FIFO threshold must be less than or equal to 511");
+        }
+    }
+
     var data: [2]u8 = undefined;
     // set interrupt threshold for fifo
-    const fifo_threshold: u16 = 256;
     std.mem.writeInt(u16, &data, fifo_threshold, .big);
     try i2c.i2cWriteReg(fd, dev_addr, FIFO_TH_REG, @as([2]u8, data));
 

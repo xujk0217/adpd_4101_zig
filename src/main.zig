@@ -28,6 +28,8 @@ pub fn main() !void {
         adpd_config.timeslot_freq_hz,
         &adpd_config.time_slots,
         adpd_config.use_ext_clock,
+        adpd_config.fifo_threshold,
+        adpd_config.gpio_id,
     ) catch |err| {
         std.debug.print("Failed to initialize ADPD4101 sensor: {}\n", .{err});
         return err;
@@ -42,10 +44,12 @@ pub fn main() !void {
 
     var read_buffer: [1024]u8 = undefined;
     while (!should_exit.load(.seq_cst)) {
-        try interrupt_gpio.waitForInterrupt();
-        _ = try adpd4101_sensor.read_raw(&read_buffer);
+        // try interrupt_gpio.waitForInterrupt();
+        const bytes_read = try adpd4101_sensor.read_raw(&read_buffer);
 
-        // std.debug.print("Read data {any} bytes: \n", .{bytes_read});
+        // if (bytes_read > 0) {
+            std.debug.print("Read {d} bytes from ADPD4101\n", .{bytes_read});
+        // }
     }
 
     // const file = try std.fs.cwd().openFile("/dev/i2c-3", .{ .mode = .read_write });
