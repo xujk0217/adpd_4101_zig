@@ -4,6 +4,7 @@ const std = @import("std");
 pub const ADPD4101 = struct {
     fd: std.posix.fd_t,
     dev_addr: u8,
+    buffer: [1024]u8 = undefined,
 
     pub fn init(
         comptime i2c_bus_path: []const u8,
@@ -41,21 +42,21 @@ pub const ADPD4101 = struct {
         std.posix.close(self.fd);
     }
 
-    pub fn read_raw(self: *const ADPD4101, out_buf: []u8) !usize {
+    pub fn read_raw(self: *ADPD4101) ![]const u8 {
         // get fifo status
         const status = try i2c.I2cReadReg(self.fd, self.dev_addr, FIFO_STATUS_REG);
         // std.debug.print("FIFO_STATUS_REG: {any}\n", .{status});
         const fifo_size: u16 = std.mem.readInt(u16, &status, .big) & 0b0000_0111_1111_1111;
         // std.debug.print("FIFO size: {d}\n", .{fifo_size});
         if (fifo_size == 0) {
-            return 0;
+            return &[_]u8{};
         }
 
-        const to_read: usize = @min(@as(usize, fifo_size), out_buf.len);
+        const to_read: usize = @min(@as(usize, fifo_size), self.buffer.len);
 
-        try i2c.i2cKeepReadReg(self.fd, self.dev_addr, FIFO_DATA_REG, out_buf[0..to_read]);
+        try i2c.i2cKeepReadReg(self.fd, self.dev_addr, FIFO_DATA_REG, self.buffer[0..to_read]);
 
-        return to_read;
+        return self.buffer[0..to_read];
     }
 };
 
