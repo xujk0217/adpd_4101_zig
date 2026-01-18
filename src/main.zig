@@ -26,13 +26,11 @@ fn process_data_queue() void {
             var i: usize = 0;
 
             while (i + 9 <= data.len) : (i += 9) {
-                const dark_val = std.mem.readInt(u24, data[i..][0..3], .little);
-                const sig_val = std.mem.readInt(u24, data[i + 3 ..][0..3], .little);
-                const lit_val = std.mem.readInt(u24, data[i + 6 ..][0..3], .little);
-                // std.debug.print("Original data bytes: {x} {x} {x}\n", .{ data[i], data[i + 1], data[i + 2] });
-                std.debug.print("Dark value: {d}\n", .{dark_val});
+                const sig_val_firstbyte: u32 = @intCast(std.mem.readInt(u8, data[i + 3 ..][1..2], .big));
+                const sig_val_secondbyte: u32 = @intCast(std.mem.readInt(u8, data[i + 3 ..][0..1], .big));
+                const sig_val_thirdbyte: u32 = @intCast(std.mem.readInt(u8, data[i + 3 ..][2..3], .big));
+                const sig_val: u32 = (sig_val_thirdbyte << 16) | (sig_val_secondbyte << 8) | sig_val_firstbyte;
                 std.debug.print("Data value: {d}\n", .{sig_val});
-                std.debug.print("LIT value: {d}\n", .{lit_val});
             }
 
             _ = data_queue.orderedRemove(0);
