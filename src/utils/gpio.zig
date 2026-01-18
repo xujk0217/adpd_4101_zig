@@ -16,7 +16,7 @@ pub const GPIO = struct {
     fd: std.posix.fd_t,
 
     pub fn init(comptime pin_id: u32) !GPIO {
-        std.debug.print("Exported GPIO pin {d}\n", .{pin_id});
+        // std.debug.print("Exported GPIO pin {d}\n", .{pin_id});
         const export_file = try std.fs.cwd().openFile("/sys/class/gpio/export", .{ .mode = .write_only });
 
         var write_buf: [32]u8 = undefined;

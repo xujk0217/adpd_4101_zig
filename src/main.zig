@@ -12,6 +12,14 @@ var should_exit = std.atomic.Value(bool).init(false);
 var gpa = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true }){};
 var data_queue: std.ArrayList([]const u8) = undefined;
 
+var stdout_buffer: [1024]u8 = undefined;
+var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+const stdout = &stdout_writer.interface;
+
+var stderr_buffer: [1024]u8 = undefined;
+var stderr_writer = std.fs.File.stderr().writer(&stderr_buffer);
+const stderr = &stderr_writer.interface;
+
 fn handle_signal(signum: c_int) callconv(.c) void {
     _ = signum;
     should_exit.store(true, .seq_cst);
@@ -30,8 +38,16 @@ fn process_data_queue() void {
                 const sig_val_secondbyte: u32 = @intCast(std.mem.readInt(u8, data[i + 3 ..][0..1], .big));
                 const sig_val_thirdbyte: u32 = @intCast(std.mem.readInt(u8, data[i + 3 ..][2..3], .big));
                 const sig_val: u32 = (sig_val_thirdbyte << 16) | (sig_val_secondbyte << 8) | sig_val_firstbyte;
-                std.debug.print("Data value: {d}\n", .{sig_val});
+                const signed_sig_val: i32 = @intCast(sig_val);
+                const timestamp = std.time.milliTimestamp();
+                stdout.print("{d}, {d}\n", .{ signed_sig_val - 8192, timestamp }) catch |err| {
+                    stderr.print("Error writing to stdout: {}\n", .{err}) catch {};
+                };
             }
+
+            stdout.flush() catch |err| {
+                stderr.print("Error flushing stdout: {}\n", .{err}) catch {};
+            };
 
             _ = data_queue.orderedRemove(0);
         }
@@ -42,11 +58,11 @@ fn process_data_queue() void {
 fn read_data_loop(adpd_sensor: *sensor.ADPD4101Sensor, interrupt_gpio: *gpio.GPIO) void {
     while (!should_exit.load(.seq_cst)) {
         interrupt_gpio.waitForInterrupt() catch |err| {
-            std.debug.print("Error waiting for GPIO interrupt: {}\n", .{err});
+            stderr.print("Error waiting for GPIO interrupt: {}\n", .{err}) catch {};
             return;
         };
         const read_data = adpd_sensor.read_raw() catch |err| {
-            std.debug.print("Error reading data: {}\n", .{err});
+            stderr.print("Error reading data from ADPD4101 sensor: {}\n", .{err}) catch {};
             continue;
         };
 
@@ -56,7 +72,7 @@ fn read_data_loop(adpd_sensor: *sensor.ADPD4101Sensor, interrupt_gpio: *gpio.GPI
 
         queue_mutex.lock();
         data_queue.append(gpa.allocator(), read_data) catch |err| {
-            std.debug.print("Error appending data to queue: {}\n", .{err});
+            stderr.print("Error appending data to queue: {}\n", .{err}) catch {};
         };
         queue_mutex.unlock();
     }
@@ -86,7 +102,7 @@ pub fn main() !void {
         adpd_config.fifo_threshold,
         adpd_config.gpio_id,
     ) catch |err| {
-        std.debug.print("Failed to initialize ADPD4101 sensor: {}\n", .{err});
+        // std.debug.print("Failed to initialize ADPD4101 sensor: {}\n", .{err});
         return err;
     };
 
@@ -94,7 +110,7 @@ pub fn main() !void {
 
     var interrupt_gpio = try gpio.GPIO.init(constant.interrupt_gpio_pin_id);
     defer interrupt_gpio.deinit() catch |err| {
-        std.debug.print("Failed to deinit GPIO: {}\n", .{err});
+        stderr.print("Failed to deinitialize GPIO: {}\n", .{err}) catch {};
     };
     // while (!should_exit.load(.seq_cst)) {
     //     try interrupt_gpio.waitForInterrupt();
@@ -103,7 +119,7 @@ pub fn main() !void {
     //     queue_mutex.lock();
 
     //     data_queue.append(allocator, read_data) catch |err| {
-    //         std.debug.print("Error appending data to queue: {}\n", .{err});
+    //         // std.debug.print("Error appending data to queue: {}\n", .{err});
     //     };
     // }
 
@@ -118,5 +134,5 @@ pub fn main() !void {
 
     // try i2c.i2cWriteReg(file.handle, 0x24, 0x0D, data);
     // const result = try i2c.I2cReadReg(file.handle, 0x24, 0x0D);
-    // std.debug.print("Read data: {x}\n", .{result});
+    // // std.debug.print("Read data: {x}\n", .{result});
 }

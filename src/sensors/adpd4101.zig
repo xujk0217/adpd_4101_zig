@@ -36,8 +36,8 @@ pub const ADPD4101 = struct {
     }
 
     pub fn deinit(self: *ADPD4101) void {
-        reset_all(self.fd, self.dev_addr) catch |err| {
-            std.debug.print("Failed to reset ADPD4101 during deinit: {}\n", .{err});
+        reset_all(self.fd, self.dev_addr) catch {
+            // stderr.print("Failed to reset ADPD4101 during deinit: {}\n", .{err}) catch {};
         };
         std.posix.close(self.fd);
     }
@@ -45,9 +45,9 @@ pub const ADPD4101 = struct {
     pub fn read_raw(self: *ADPD4101) ![]const u8 {
         // get fifo status
         const status = try i2c.I2cReadReg(self.fd, self.dev_addr, FIFO_STATUS_REG);
-        // std.debug.print("FIFO_STATUS_REG: {any}\n", .{status});
+        // // std.debug.print("FIFO_STATUS_REG: {any}\n", .{status});
         const fifo_size: u16 = std.mem.readInt(u16, &status, .big) & 0b0000_0111_1111_1111;
-        // std.debug.print("FIFO size: {d}\n", .{fifo_size});
+        // // std.debug.print("FIFO size: {d}\n", .{fifo_size});
         if (fifo_size == 0) {
             return &[_]u8{};
         }
@@ -66,7 +66,7 @@ fn set_opmode(fd: std.posix.fd_t, dev_addr: u8, slot_count: u8, is_enable: bool)
     mode |= @as(u16, slot_count - 1) << 8;
     var data: [2]u8 = undefined;
     std.mem.writeInt(u16, &data, mode, .big);
-    std.debug.print("Setting OPMODE to {any}\n", .{data});
+    // std.debug.print("Setting OPMODE to {any}\n", .{data});
     try i2c.i2cWriteReg(fd, dev_addr, OPMODE_REG, @as([2]u8, data));
 }
 
@@ -143,6 +143,7 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, slot: TimeSlot) !void {
     const mod_pulse_target_reg = MOD_PULSE_A_REG + (slot.id[0] - 'A') * 0x20;
     const led_pow12_target_reg = LED_POW12_A_REG + (slot.id[0] - 'A') * 0x20;
     const led_pow34_target_reg = LED_POW34_A_REG + (slot.id[0] - 'A') * 0x20;
+    const counts_target_reg = COUNTS_A_REG + (slot.id[0] - 'A') * 0x20;
     var input_value: u16 = 0;
     var ts_ctrl_value: u16 = 0;
     var data_format_value: u16 = 0;
@@ -176,14 +177,14 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, slot: TimeSlot) !void {
         ts_ctrl_value |= 0b0100_0000_0000_0000;
     }
 
-    std.debug.print("value binary: {b}\n", .{input_value});
+    // std.debug.print("value binary: {b}\n", .{input_value});
 
     std.mem.writeInt(u16, &data, input_value, .big);
-    std.debug.print("Setting INPUT_{s} to {x}\n", .{ slot
-        .id, input_value });
+    // std.debug.print("Setting INPUT_{s} to {x}\n", .{ slot
+    // .id, input_value });
     try i2c.i2cWriteReg(fd, dev_addr, input_target_reg, @as([2]u8, data));
     std.mem.writeInt(u16, &data, ts_ctrl_value, .big);
-    std.debug.print("Setting TS_CTRL_{s} to {x}\n", .{ slot.id, ts_ctrl_value });
+    // std.debug.print("Setting TS_CTRL_{s} to {x}\n", .{ slot.id, ts_ctrl_value });
     try i2c.i2cWriteReg(fd, dev_addr, ts_ctrl_target_reg, @as([2]u8, data));
 
     data_format_value |= @as(u16, slot.data_format.dark_shift & 0x0F) << 11;
@@ -192,26 +193,26 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, slot: TimeSlot) !void {
     data_format_value |= @as(u16, slot.data_format.sig_size & 0x03);
 
     std.mem.writeInt(u16, &data, data_format_value, .big);
-    std.debug.print("Setting DATA_FORMAT_{s} to {b}\n", .{ slot.id, data_format_value });
+    // std.debug.print("Setting DATA_FORMAT_{s} to {b}\n", .{ slot.id, data_format_value });
     try i2c.i2cWriteReg(fd, dev_addr, data_format_target_reg, @as([2]u8, data));
 
     lit_data_format_value |= (slot.data_format.lit_shift & 0x0F) << 3;
     lit_data_format_value |= (slot.data_format.lit_size & 0x03);
 
     std.mem.writeInt(u16, &data, lit_data_format_value, .big);
-    std.debug.print("Setting LIT_DATA_FORMAT_{s} to {b}\n", .{ slot.id, lit_data_format_value });
+    // std.debug.print("Setting LIT_DATA_FORMAT_{s} to {b}\n", .{ slot.id, lit_data_format_value });
     try i2c.i2cWriteReg(fd, dev_addr, lit_data_format_target_reg, @as([2]u8, data));
 
     mod_pulse_value |= (slot.led_pulse.pulse_width_us & 0xFF) << 8;
     mod_pulse_value |= (slot.led_pulse.pulse_offset_us & 0xFF);
 
     std.mem.writeInt(u16, &data, mod_pulse_value, .big);
-    std.debug.print("Setting MOD_PULSE_{s} to {b}\n", .{ slot.id, mod_pulse_value });
+    // std.debug.print("Setting MOD_PULSE_{s} to {b}\n", .{ slot.id, mod_pulse_value });
     try i2c.i2cWriteReg(fd, dev_addr, mod_pulse_target_reg, @as([2]u8, data));
 
     // configure LED power
     for (slot.leds) |led| {
-        std.debug.print("Configuring LED ID {d} with current {d}\n", .{ led.id, led.current });
+        // std.debug.print("Configuring LED ID {d} with current {d}\n", .{ led.id, led.current });
         if (led.id < 4) {
             const shift: u4 = @intCast((led.id / 2) * 8);
             led_pow12_value |= (led.current & 0x7F) << shift;
@@ -224,11 +225,19 @@ fn config_time_slot(fd: std.posix.fd_t, dev_addr: u8, slot: TimeSlot) !void {
     }
 
     std.mem.writeInt(u16, &data, led_pow12_value, .big);
-    std.debug.print("Setting LED_POW12_{s} to {b}\n", .{ slot.id, led_pow12_value });
+    // std.debug.print("Setting LED_POW12_{s} to {b}\n", .{ slot.id, led_pow12_value });
     try i2c.i2cWriteReg(fd, dev_addr, led_pow12_target_reg, @as([2]u8, data));
     std.mem.writeInt(u16, &data, led_pow34_value, .big);
-    std.debug.print("Setting LED_POW34_{s} to {b}\n", .{ slot.id, led_pow34_value });
+    // std.debug.print("Setting LED_POW34_{s} to {b}\n", .{ slot.id, led_pow34_value });
     try i2c.i2cWriteReg(fd, dev_addr, led_pow34_target_reg, @as([2]u8, data));
+
+    // configure counts
+    var counts_value: u16 = 0;
+    counts_value |= (slot.counts.num_integrations) << 8;
+    counts_value |= (slot.counts.num_repeats);
+    std.mem.writeInt(u16, &data, counts_value, .big);
+    // std.debug.print("Setting COUNTS_{s} to {b}\n", .{ slot.id, counts_value });
+    try i2c.i2cWriteReg(fd, dev_addr, counts_target_reg, @as([2]u8, data));
 }
 
 fn set_time_slot_freq(fd: std.posix.fd_t, dev_addr: u8, oscillator: Oscillator, target_hz: u32) !void {
@@ -241,14 +250,14 @@ fn set_time_slot_freq(fd: std.posix.fd_t, dev_addr: u8, oscillator: Oscillator, 
     const low_freq: u16 = @truncate(ts_freq & 0x0000FFFF);
     const high_freq: u16 = @truncate((ts_freq >> 16) & 0xFFFF);
 
-    std.debug.print("Setting time slot frequency to {any} Hz (low_freq: {x}, high_freq: {x})\n", .{ target_hz, low_freq, high_freq });
+    // std.debug.print("Setting time slot frequency to {any} Hz (low_freq: {x}, high_freq: {x})\n", .{ target_hz, low_freq, high_freq });
 
     var data: [2]u8 = undefined;
     std.mem.writeInt(u16, &data, low_freq, .big);
-    std.debug.print("Setting TS_FREQ to {any}\n", .{data});
+    // std.debug.print("Setting TS_FREQ to {any}\n", .{data});
     try i2c.i2cWriteReg(fd, dev_addr, TS_FREQ_REG, @as([2]u8, data));
     std.mem.writeInt(u16, &data, high_freq, .big);
-    std.debug.print("Setting TS_FREQH to {any}\n", .{data});
+    // std.debug.print("Setting TS_FREQH to {any}\n", .{data});
     try i2c.i2cWriteReg(fd, dev_addr, TS_FREQH_REG, @as([2]u8, data));
 }
 
@@ -371,6 +380,19 @@ const LIT_DATA_FORMAT_I_REG: u16 = 0x0211;
 const LIT_DATA_FORMAT_J_REG: u16 = 0x0231;
 const LIT_DATA_FORMAT_K_REG: u16 = 0x0251;
 const LIT_DATA_FORMAT_L_REG: u16 = 0x0271;
+// counts register
+const COUNTS_A_REG: u16 = 0x0107;
+const COUNTS_B_REG: u16 = 0x0127;
+const COUNTS_C_REG: u16 = 0x0147;
+const COUNTS_D_REG: u16 = 0x0167;
+const COUNTS_E_REG: u16 = 0x0187;
+const COUNTS_F_REG: u16 = 0x01A7;
+const COUNTS_G_REG: u16 = 0x01C7;
+const COUNTS_H_REG: u16 = 0x01E7;
+const COUNTS_I_REG: u16 = 0x0207;
+const COUNTS_J_REG: u16 = 0x0227;
+const COUNTS_K_REG: u16 = 0x0247;
+const COUNTS_L_REG: u16 = 0x0267;
 // gpio register
 const GPIO_CFG_REG: u16 = 0x0022;
 const GPIO_01_REG: u16 = 0x0023;
@@ -382,6 +404,7 @@ pub const Oscillator = enum { INTERNAL_1MHZ, INTERNAL_32KHZ };
 pub const TimeSlot = struct {
     id: []const u8,
     leds: []const Led,
+    counts: Counts,
     data_format: DataFormat,
     led_pulse: LedPulse,
     input_pds: [2]?PD,
@@ -394,6 +417,11 @@ pub const DataFormat = struct {
     lit_size: u8 = 0x3,
     sig_shift: u8 = 0x0,
     sig_size: u8 = 0x3,
+};
+
+pub const Counts = struct {
+    num_integrations: u16 = 0x1,
+    num_repeats: u16 = 0x1,
 };
 
 pub const Led = struct {
