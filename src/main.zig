@@ -10,7 +10,7 @@ var queue_mutex = std.Thread.Mutex{};
 
 var should_exit = std.atomic.Value(bool).init(false);
 var gpa = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true }){};
-var data_queue: std.ArrayList([]const u8) = undefined;
+var data_queue: std.ArrayList(u8) = undefined;
 
 var stdout_buffer: [1024]u8 = undefined;
 var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
@@ -26,30 +26,68 @@ fn handle_signal(signum: c_int) callconv(.c) void {
 }
 
 fn process_data_queue() void {
+    var timeslot_signal_size_arr: [adpd_config.time_slots.len]usize = undefined;
+
+    inline for (adpd_config.time_slots, 0..) |slot, i| {
+        timeslot_signal_size_arr[i] = @intCast(slot.data_format.sig_size);
+    }
+
+    var current_slot_index: usize = 0;
+
     while (!should_exit.load(.seq_cst)) {
         queue_mutex.lock();
         if (data_queue.items.len > 0) {
-            const data = data_queue.items[0];
+            const data = data_queue.items;
+            var data_index: usize = 0;
 
-            var i: usize = 0;
+            while (data_index < data.len) {
+                const size = timeslot_signal_size_arr[current_slot_index];
+                if (data_index + size > data.len) {
+                    break;
+                }
+                const signal_data_raw = data[data_index .. data_index + size];
+                var signal_value: u32 = 0;
 
-            while (i + 9 <= data.len) : (i += 9) {
-                const sig_val_firstbyte: u32 = @intCast(std.mem.readInt(u8, data[i + 3 ..][1..2], .big));
-                const sig_val_secondbyte: u32 = @intCast(std.mem.readInt(u8, data[i + 3 ..][0..1], .big));
-                const sig_val_thirdbyte: u32 = @intCast(std.mem.readInt(u8, data[i + 3 ..][2..3], .big));
-                const sig_val: u32 = (sig_val_thirdbyte << 16) | (sig_val_secondbyte << 8) | sig_val_firstbyte;
-                const signed_sig_val: i32 = @intCast(sig_val);
+                switch (size) {
+                    1 => {
+                        signal_value = @as(u32, signal_data_raw[0]);
+                    },
+                    2 => {
+                        signal_value = @as(u32, signal_data_raw[0]) | (@as(u32, signal_data_raw[1]) << 8);
+                    },
+                    3 => {
+                        signal_value = (@as(u32, signal_data_raw[1]) << 8) | @as(u32, signal_data_raw[0]) | (@as(u32, signal_data_raw[2]) << 16);
+                    },
+                    4 => {
+                        signal_value = (@as(u32, signal_data_raw[0]) << 8) | @as(u32, signal_data_raw[1]) | (@as(u32, signal_data_raw[2]) << 16) | (@as(u32, signal_data_raw[3]) << 24);
+                    },
+                    else => {
+                        unreachable;
+                    },
+                }
+
+                // stdout.print("original data {any}\n", .{signal_data_raw}) catch |err| {
+                //     stderr.print("Error writing to stdout: {}\n", .{err}) catch {};
+                // };
+
+                const casted_value: i64 = @intCast(signal_value);
                 const timestamp = std.time.milliTimestamp();
-                stdout.print("{d}, {d}\n", .{ signed_sig_val - 8192, timestamp }) catch |err| {
+
+                stdout.print("{d}, {d}\n", .{ casted_value - 8192, timestamp }) catch |err| {
                     stderr.print("Error writing to stdout: {}\n", .{err}) catch {};
                 };
+
+                data_index += size;
+                current_slot_index = (current_slot_index + 1) % adpd_config.time_slots.len;
             }
 
             stdout.flush() catch |err| {
                 stderr.print("Error flushing stdout: {}\n", .{err}) catch {};
             };
 
-            _ = data_queue.orderedRemove(0);
+            data_queue.replaceRange(gpa.allocator(), 0, data_index, &[_]u8{}) catch |err| {
+                stderr.print("Error removing processed data from queue: {}\n", .{err}) catch {};
+            };
         }
         queue_mutex.unlock();
     }
@@ -71,9 +109,12 @@ fn read_data_loop(adpd_sensor: *sensor.ADPD4101Sensor, interrupt_gpio: *gpio.GPI
         }
 
         queue_mutex.lock();
-        data_queue.append(gpa.allocator(), read_data) catch |err| {
-            stderr.print("Error appending data to queue: {}\n", .{err}) catch {};
-        };
+        for (read_data) |byte| {
+            data_queue.append(gpa.allocator(), byte) catch |err| {
+                stderr.print("Error appending data to queue: {}\n", .{err}) catch {};
+            };
+        }
+
         queue_mutex.unlock();
     }
 }
@@ -89,7 +130,7 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
-    data_queue = try std.ArrayList([]const u8).initCapacity(allocator, 1024);
+    data_queue = try std.ArrayList(u8).initCapacity(allocator, 1024);
     defer data_queue.deinit(allocator);
 
     var adpd4101_sensor = sensor.ADPD4101Sensor.init(

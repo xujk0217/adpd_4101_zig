@@ -19,7 +19,8 @@ pub const time_slots = [_]adpd.TimeSlot{
         },
         .data_format = .{
             .lit_size = 0x0,
-            .sig_size = 0x3,
+            .sig_size = 0x4,
+            .dark_size = 0x0,
         }, // default
         .led_pulse = .{
             .pulse_width_us = 0x1,
@@ -28,7 +29,7 @@ pub const time_slots = [_]adpd.TimeSlot{
             .pair_12 = .IN1_Ch1,
         },
         .counts = .{
-            .num_integrations = 0x8,
+            .num_integrations = 0x1,
             .num_repeats = 0x1,
         },
         .mod_pulse = .{},
